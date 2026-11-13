@@ -1,0 +1,124 @@
+# My Uliyil — Cursor AI Instructions & Rules (.cursorrules)
+
+You are working on **My Uliyil**, the official community portal and directory for Uliyil (Ward 19, Iritty Municipality, Kannur, Kerala).
+The live deployment is on Vercel at `https://my-uliyil.vercel.app` backed by Neon Serverless PostgreSQL.
+
+---
+
+## 1. Tech Stack
+- **Framework**: Next.js 16 (App Router, Turbopack)
+- **Language**: TypeScript 5.9 (Strict mode)
+- **UI & Runtime**: React 19, Lucide React icons
+- **Database & ORM**: PostgreSQL (Neon Serverless) via `pg` (Pool) and `drizzle-orm` 0.45, `drizzle-kit` 0.31
+- **Styling**: Tailwind CSS v4 & custom scoped CSS in `src/app/globals.css`
+- **Validation**: Zod 4
+- **Deployment**: Vercel (`zam-f988/my-uliyil`)
+
+---
+
+## 2. Project Architecture & Directory Structure
+```
+├── public/                 # Static assets (images, robots.txt, sitemap.xml, google verification)
+├── src/
+│   ├── app/                # Next.js App Router
+│   │   ├── admin/          # Admin moderation control room (/admin)
+│   │   ├── api/            # API Route Handlers
+│   │   │   ├── admin/      # /api/admin & /api/admin/photo (Admin actions)
+│   │   │   ├── content/    # /api/content (Announcements, meetings, projects)
+│   │   │   ├── health/     # /api/health (DB connectivity check)
+│   │   │   ├── listings/   # /api/listings (Hello Uliyil directory CRUD)
+│   │   │   └── requests/   # /api/requests (Grievances, ideas, appointments)
+│   │   ├── hello-uliyil/   # Directory page (/hello-uliyil)
+│   │   ├── track/          # Private request tracker (/track)
+│   │   ├── [slug]/         # Dynamic interior pages (/councillor, /services, etc.)
+│   │   ├── globals.css     # Design system, theme variables, and component styles
+│   │   ├── layout.tsx      # Root layout with SEO JSON-LD and Shell wrapper
+│   │   └── page.tsx        # Homepage
+│   ├── components/         # Reusable UI components
+│   │   ├── Directory.tsx   # Hello Uliyil Directory with multi-category picker
+│   │   ├── RequestForm.tsx # Issue/Idea/Appointment submission form
+│   │   ├── ServicesHub.tsx # Kerala Govt & LSGD digital service links
+│   │   ├── Shell.tsx       # Header, navigation drawer, footer, theme provider
+│   │   ├── Portrait.tsx    # Councillor portrait display
+│   │   └── Translated.tsx  # Malayalam/English bilingual text renderer
+│   ├── db/
+│   │   ├── index.ts        # Drizzle instance with pooled PG connection
+│   │   └── schema.ts       # PostgreSQL table definitions
+│   └── lib/
+│       ├── auth.ts         # HMAC-SHA256 session cookie authentication for admin
+│       └── config.ts       # Site metadata, categories, emergency helplines
+├── .env                    # Local environment variables
+└── drizzle.config.ts       # Drizzle Kit configuration
+```
+
+---
+
+## 3. Database Schema (Drizzle ORM)
+
+### Tables in `src/db/schema.ts`:
+1. `listings`:
+   - `id`: `uuid` (PK, defaultRandom)
+   - `type`: `varchar(40)` ('business' | 'individual' | 'institution')
+   - `name`: `varchar(160)`
+   - `contactName`: `varchar(160)`
+   - `phone`: `varchar(20)`
+   - `whatsapp`: `varchar(20)`
+   - `category`: `text` (Stores comma-separated categories for multi-category selection e.g. "Electricians, Plumbers")
+   - `locality`: `varchar(160)`
+   - `address`: `text`
+   - `description`: `text`
+   - `availability`: `varchar(160)`
+   - `imageUrl`: `text`
+   - `mapUrl`: `text`
+   - `status`: `varchar(20)` ('pending' | 'approved' | 'rejected' | 'removed')
+   - `verified`: `boolean` (true when status === 'approved')
+   - `consent`: `boolean`
+   - `createdAt`, `updatedAt`: `timestamp with time zone`
+
+2. `requests`:
+   - `id`: `uuid` (PK, defaultRandom)
+   - `kind`: `varchar(30)` ('issue' | 'idea' | 'appointment' | 'listing-report' | 'correction')
+   - `category`: `varchar(100)`
+   - `name`, `phone`, `email`, `locality`: text/varchar
+   - `description`: `text`
+   - `photoData`: `text` (base64 string for issue attachments <= 3MB)
+   - `photoMime`: `varchar(30)` ('image/jpeg', 'image/png', 'image/webp')
+   - `status`: `varchar(30)` ('received' | 'reviewing' | 'resolved' | 'closed' | 'approved' | 'rejected')
+   - `privateToken`: `varchar(64)` (32-character random hex token for private tracking)
+   - `consent`: `boolean`
+   - `createdAt`, `updatedAt`: `timestamp with time zone`
+
+3. `content_entries`:
+   - `id`: `uuid` (PK)
+   - `type`: `varchar(40)` ('announcement' | 'meeting' | 'project' | 'gallery' | 'institution' | 'organisation' | 'service')
+   - `title`: `varchar(200)`
+   - `body`: `text`
+   - `category`, `locality`: `varchar`
+   - `url`, `imageUrl`: `text`
+   - `status`: `varchar(30)` ('draft' | 'published' | 'archived')
+   - `publishedAt`, `expiresAt`, `createdAt`: `timestamp with time zone`
+
+---
+
+## 4. Key Security & Functional Rules
+1. **Consent & Verification Required**:
+   - Listings and requests require explicit `consent: true`.
+   - All submissions are `pending` / `received` by default and NEVER shown publicly until approved by an admin.
+   - Spam Honeypot: `<input name="website" tabIndex={-1} className="honeypot" />` must remain empty.
+   - Rate limiting: Map-based IP rate limits exist on `/api/listings` (30s) and `/api/requests` (15s).
+2. **Multi-category Listings**:
+   - Directory form allows picking multiple categories. They are sent as an array or joined string to `/api/listings`.
+   - Filtering uses `ilike(listings.category, '%searchTerm%')` so each individual category matches correctly.
+3. **Admin Authentication**:
+   - Route: `/admin` and `/api/admin`.
+   - Protected by `uliyil_admin` HTTP-only cookie verified with HMAC SHA256 in `src/lib/auth.ts`.
+   - Requires `ADMIN_PASSWORD` in environment.
+
+---
+
+## 5. Development Commands
+- Start dev server: `npm run dev` (Runs on http://localhost:3000)
+- Type check: `npm run typecheck`
+- Production build: `npm run build`
+- Push schema migrations to Neon Postgres: `npx drizzle-kit push`
+- Deploy to Vercel production: `npx vercel --prod --yes`
